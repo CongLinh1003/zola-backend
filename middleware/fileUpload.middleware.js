@@ -63,5 +63,39 @@ const imageUploadMiddleware = (req, res, next) => {
   });
 };
 
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    "image/jpeg",
+    "image/png",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new multer.MulterError("not-support-type"), false);
+  }
+};
+
+const uploadFiles = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per request
+  fileFilter: fileFilter,
+}).array("files", 5); // Allow up to 5 files
+
+const fileUploadMiddleware = (req, res, next) => {
+  uploadFiles(req, res, (error) => {
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ error: { message: error.message } });
+    } else if (error) {
+      return res.status(500).json({
+        error: { message: "An error occurred during the file upload." },
+      });
+    }
+    next();
+  });
+};
+exports.fileUploadMiddleware = fileUploadMiddleware;
 exports.avatarUploadMiddleware = avatarUploadMiddleware;
 exports.imageUploadMiddleware = imageUploadMiddleware;

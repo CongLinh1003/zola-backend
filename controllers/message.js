@@ -280,6 +280,79 @@ exports.sendImages = async (req, res) => {
   }
 };
 
+exports.sendFiles = async (req, res) => {
+  const { session, s3, io } = req.context;
+  const { conversationId } = req.params;
+  const files = req.files;
+
+  try {
+    if (!files || files.length === 0) throw { code: "empty-file" };
+
+    const isInConversation = await checkUserInConversation(
+      conversationId,
+      req.context
+    );
+
+    if (!isInConversation) throw { code: "conversation-not-exist" };
+
+    let contentUrl = [];
+
+    for (const file of files) {
+      const fileInfo = {
+        Bucket: config.AWS_S3_BUCKET_NAME,
+        Key: `conversations/${conversationId}/${session.id}-${Date.now()}`,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      };
+
+      const uploaded = await s3.upload(fileInfo).promise();
+      contentUrl.push({
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileUrl: uploaded.Location,
+      });
+    }
+
+    const conversation = await prisma.conversation.update({
+      data: {
+        message: {
+          push: {
+            userId: session.id,
+            content: JSON.stringify(contentUrl),
+            typeMessage: "FILE",
+          },
+        },
+        userSeen: [session.id],
+      },
+      where: {
+        id: conversationId,
+      },
+      include: {
+        participants: {
+          select: {
+            id: true,
+            displayName: true,
+            photoUrl: true,
+          },
+        },
+      },
+    });
+
+    const newMessage = conversation?.message?.pop();
+
+    io.of("/chats").to(conversationId).emit("sent_message", {
+      id: conversation.id,
+      message: newMessage,
+    });
+
+    return res.status(200).end();
+  } catch (error) {
+    const { code } = error;
+    if (code) return res.status(403).json({ error: { code } });
+    return res.status(500).json({ error: { code: "something went wrong" } });
+  }
+};
+
 exports.getImages = async (req, res) => {
   const { prisma } = req.context;
   const { conversationId } = req.params;
